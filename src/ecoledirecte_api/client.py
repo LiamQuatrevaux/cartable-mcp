@@ -855,10 +855,22 @@ class EDClient:
             timeout=ClientTimeout(total=120),
         )
         json_resp = await response.json(content_type=None)
+        new_token = response.headers.get("x-token")
+        if not new_token:
+            # Refus (403 / 550) : ne jamais écraser un token encore valide
+            # par l'en-tête vide que renvoie l'API dans ce cas.
+            message = ""
+            if isinstance(json_resp, dict):
+                message = str(json_resp.get("message") or "")
+            raise EcoleDirecteException(
+                path="/renewtoken.awp",
+                params={"verbe": "post"},
+                message=message.strip()
+                or "Changement de compte refusé par l'API.",
+            )
 
-        if "x-token" in response.headers:
-            self.token = response.headers["x-token"]
-            session.headers.update({"x-token": self.token})
+        self.token = new_token
+        session.headers.update({"x-token": self.token})
 
         return cast(JsonResponse, json_resp)
 

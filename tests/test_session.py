@@ -408,3 +408,26 @@ def test_run_does_not_retry_other_errors(
 
     with pytest.raises(LoginException, match="bloqué"):
         asyncio.run(session.run(call))
+
+
+def test_select_account_keeps_session_when_api_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = make_session(tmp_path)
+    client = EDClient("eleve", "secret", {}, read_only=True)
+    client.token = "jeton-valide"
+    session._client = client
+    session._accounts = [{"idLogin": 1}, {"idLogin": 2}]
+
+    async def refuse(_id_login: int) -> dict[str, Any]:
+        raise EcoleDirecteException(
+            path="/renewtoken.awp", message="Changement de compte refusé."
+        )
+
+    monkeypatch.setattr(client, "switch_account", refuse)
+
+    with pytest.raises(EcoleDirecteException, match="refusé"):
+        asyncio.run(session.select_account(2))
+
+    assert client.token == "jeton-valide"
+    assert session.authenticated
