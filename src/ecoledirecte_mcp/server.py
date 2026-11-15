@@ -16,6 +16,7 @@ from mcp.server.mcpserver import MCPServer
 
 from . import __version__
 from .config import Settings
+from .guard import CartableServer
 from .runtime import set_session
 from .session import EdSession
 from .tools import (
@@ -71,7 +72,7 @@ def build_server(settings: Settings | None = None) -> MCPServer:
     resolved = settings or Settings.from_env()
     set_session(EdSession(resolved))
 
-    server: MCPServer = MCPServer(
+    server: MCPServer = CartableServer(
         name="ecoledirecte",
         title="Ecole Directe (élève, lecture seule)",
         version=__version__,
