@@ -33,8 +33,8 @@ def session() -> EdSession:
     return get_session()
 
 
-def resolve_student(value: str | None) -> str:
-    return session().resolve_student(value)
+async def resolve_student(value: str | None) -> str:
+    return await session().resolve_student(value)
 
 
 def school_year(value: str | None) -> str:

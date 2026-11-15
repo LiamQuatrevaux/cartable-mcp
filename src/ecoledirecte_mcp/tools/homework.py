@@ -33,7 +33,7 @@ def register(server: MCPServer) -> None:
         only_pending: bool = False,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         current = today(session().settings)
         start = date_debut or iso(current)
         end = date_fin or iso(current + timedelta(days=7))
@@ -69,7 +69,7 @@ def register(server: MCPServer) -> None:
         date: str,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         day = require_date(date, "date")
         return clean(
             await cached(
@@ -91,7 +91,7 @@ def register(server: MCPServer) -> None:
     async def ed_list_homework_subjects(
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = clean(await cached(f"homework|{sid}", 120.0, ep.get_homework, sid))
         grouped: dict[str, dict[str, Any]] = {}
         for item in homework_items(data):
@@ -124,7 +124,7 @@ def register(server: MCPServer) -> None:
     async def ed_get_homework_index(
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = clean(await cached(f"homework|{sid}", 120.0, ep.get_homework, sid))
         payload = as_dict(data)
         return {

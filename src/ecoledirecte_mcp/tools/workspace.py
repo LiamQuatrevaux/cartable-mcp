@@ -33,7 +33,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_list_workspaces(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await cached(
                 f"workspaces|{sid}", WORKSPACE_TTL, ep.get_workspaces, sid
@@ -47,7 +47,7 @@ def register(server: MCPServer) -> None:
     async def ed_get_workspace(
         espace_id: str, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         espace_id = require_numeric_id(espace_id, "espace_id")
         return clean(
             await cached(
@@ -66,7 +66,7 @@ def register(server: MCPServer) -> None:
     async def ed_list_workspace_activities(
         espace_id: str, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         espace_id = require_numeric_id(espace_id, "espace_id")
         return clean(
             await cached(
@@ -87,7 +87,7 @@ def register(server: MCPServer) -> None:
         activity_id: str,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         espace_id = require_numeric_id(espace_id, "espace_id")
         activity_id = require_numeric_id(activity_id, "activity_id")
         return clean(
@@ -125,7 +125,7 @@ def register(server: MCPServer) -> None:
         workspace_id: str | None = None,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         if folder is not None:
             folder = require_remote_path(folder, "folder")
         if workspace_id is not None:

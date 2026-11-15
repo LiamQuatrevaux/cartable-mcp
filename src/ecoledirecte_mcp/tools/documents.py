@@ -116,7 +116,7 @@ def register(server: MCPServer) -> None:
     async def ed_list_forms(
         annee: str | None = None, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         year = school_year(annee)
         data = clean(
             await cached(
@@ -141,7 +141,7 @@ def register(server: MCPServer) -> None:
         annee: str | None = None,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         year = school_year(annee)
         form_id = require_numeric_id(form_id, "form_id")
         data = clean(

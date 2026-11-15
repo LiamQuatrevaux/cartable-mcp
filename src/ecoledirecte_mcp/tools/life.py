@@ -40,14 +40,14 @@ def register(server: MCPServer) -> None:
     async def ed_get_vie_scolaire(
         student_id: str | None = None,
     ) -> Any:
-        return await _vie_scolaire(resolve_student(student_id))
+        return await _vie_scolaire(await resolve_student(student_id))
 
     @server.tool(
         name="ed_list_absences",
         description="Absences avec date, demi-journées, motif et justification.",
     )
     async def ed_list_absences(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = attendance(await _vie_scolaire(sid))
         return {"count": len(data["absences"]), "absences": data["absences"]}
 
@@ -56,7 +56,7 @@ def register(server: MCPServer) -> None:
         description="Retards avec date, durée, motif et justification.",
     )
     async def ed_list_retards(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = attendance(await _vie_scolaire(sid))
         return {"count": len(data["retards"]), "retards": data["retards"]}
 
@@ -65,7 +65,7 @@ def register(server: MCPServer) -> None:
         description="Sanctions disciplinaires visibles par l'élève.",
     )
     async def ed_list_sanctions(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = attendance(await _vie_scolaire(sid))
         return {"count": len(data["sanctions"]), "sanctions": data["sanctions"]}
 
@@ -74,7 +74,7 @@ def register(server: MCPServer) -> None:
         description="Encouragements et félicitations enregistrés.",
     )
     async def ed_list_encouragements(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = attendance(await _vie_scolaire(sid))
         return {
             "count": len(data["encouragements"]),
@@ -89,7 +89,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_get_attendance_summary(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = attendance(await _vie_scolaire(sid))
         absences = data["absences"]
         retards = data["retards"]
@@ -118,7 +118,7 @@ def register(server: MCPServer) -> None:
     async def ed_get_carnet_correspondance(
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await cached(
                 f"carnet|{sid}", LIFE_TTL, ep.get_carnet, sid
@@ -133,7 +133,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_list_sessions_rdv(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = clean(
             await cached(f"rdv|{sid}", LIFE_TTL, ep.get_sessions_rdv, sid)
         )

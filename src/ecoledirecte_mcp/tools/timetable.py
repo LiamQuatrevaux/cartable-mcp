@@ -36,7 +36,7 @@ def register(server: MCPServer) -> None:
         date_fin: str,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         date_debut, date_fin = require_range(date_debut, date_fin)
         data = await cached(
             f"timetable|{sid}|{date_debut}|{date_fin}",
@@ -53,7 +53,7 @@ def register(server: MCPServer) -> None:
         description="Emploi du temps du jour, dans le fuseau configuré.",
     )
     async def ed_get_today(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         current = iso(today(session().settings))
         data = await cached(
             f"timetable|{sid}|{current}|{current}",
@@ -70,7 +70,7 @@ def register(server: MCPServer) -> None:
         description="Emploi du temps de la semaine en cours (lundi → dimanche).",
     )
     async def ed_get_week(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         start, end = _week_bounds(today(session().settings))
         data = await cached(
             f"timetable|{sid}|{start}|{end}",
@@ -87,7 +87,7 @@ def register(server: MCPServer) -> None:
         description="Prochain cours à venir dans les 21 jours.",
     )
     async def ed_get_next_course(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         current = today(session().settings)
         start = iso(current)
         end = iso(current + timedelta(days=21))
@@ -120,7 +120,7 @@ def register(server: MCPServer) -> None:
     async def ed_list_timetable_changes(
         days: int = 14, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         current = today(session().settings)
         start = iso(current)
         end = iso(current + timedelta(days=clamp(days, 1, 60)))

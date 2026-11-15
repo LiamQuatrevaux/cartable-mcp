@@ -125,7 +125,7 @@ def register(server: MCPServer) -> None:
                 "message": str(exc),
                 "hint": "Attends quelques minutes avant de réessayer.",
             }
-        sid = resolve_student(None)
+        sid = await resolve_student(None)
         try:
             profile = clean(
                 await session.fetch(f"profile|{sid}", 600.0, ep.get_student, sid)

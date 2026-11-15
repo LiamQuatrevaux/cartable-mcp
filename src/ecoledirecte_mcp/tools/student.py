@@ -27,7 +27,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_get_profile(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await cached(f"profile|{sid}", PROFILE_TTL, ep.get_student, sid)
         )
@@ -40,7 +40,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_get_timeline(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await cached(
                 f"timeline|{sid}", PROFILE_TTL, ep.get_timeline, sid
@@ -55,7 +55,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_get_school_timeline(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await cached(
                 f"school-timeline|{sid}", PROFILE_TTL, ep.get_common_timeline, sid
@@ -67,7 +67,7 @@ def register(server: MCPServer) -> None:
         description="Manuels numériques associés à l'élève (titre, éditeur, URL).",
     )
     async def ed_list_manuals(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await cached(f"manuals|{sid}", PROFILE_TTL, ep.get_manuals, sid)
         )
@@ -77,7 +77,7 @@ def register(server: MCPServer) -> None:
         description="Sessions de visioconférence visibles par l'élève.",
     )
     async def ed_list_visios(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(await cached(f"visios|{sid}", 120.0, ep.get_visios, sid))
 
     @server.tool(
@@ -85,7 +85,7 @@ def register(server: MCPServer) -> None:
         description="QCM / évaluations associés au compte élève.",
     )
     async def ed_list_qcms(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(await cached(f"qcms|{sid}", 300.0, ep.get_qcms, sid))
 
     @server.tool(
@@ -98,7 +98,7 @@ def register(server: MCPServer) -> None:
     async def ed_get_class_life(
         classe_id: str | None = None, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         classe = (
             require_numeric_id(classe_id, "classe_id")
             if classe_id
@@ -120,7 +120,7 @@ def register(server: MCPServer) -> None:
     async def ed_list_class_students(
         classe_id: str | None = None, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         classe = (
             require_numeric_id(classe_id, "classe_id")
             if classe_id

@@ -27,7 +27,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_get_menus(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await cached(f"menus|{sid}", DOCUMENTS_TTL, ep.get_menus, sid)
         )
@@ -43,7 +43,7 @@ def register(server: MCPServer) -> None:
         include_articles: bool = False,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = as_dict(
             clean(
                 await cached(
@@ -91,7 +91,7 @@ def register(server: MCPServer) -> None:
         ),
     )
     async def ed_list_canteen_orders(student_id: str | None = None) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = as_dict(
             clean(
                 await cached(
@@ -118,7 +118,7 @@ def register(server: MCPServer) -> None:
         date: str,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         point_id = require_numeric_id(point_id, "point_id")
         date = require_date(date, "date")
         return clean(

@@ -40,7 +40,7 @@ def register(server: MCPServer) -> None:
     async def ed_list_periods(
         annee: str | None = None, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = await _notes(sid, school_year(annee))
         return [period_summary(period) for period in periods(data)]
 
@@ -57,7 +57,7 @@ def register(server: MCPServer) -> None:
         annee: str | None = None,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = await _notes(sid, school_year(annee))
         available = periods(data)
         if not available:
@@ -127,7 +127,7 @@ def register(server: MCPServer) -> None:
         annee: str | None = None,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = await _notes(sid, school_year(annee))
         rows = flatten_grades(data)
         if period:
@@ -166,7 +166,7 @@ def register(server: MCPServer) -> None:
         annee: str | None = None,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = await _notes(sid, school_year(annee))
         rows = flatten_grades(data)
         return {"count": len(rows), "evaluations": rows[: max(1, limit)]}
@@ -183,7 +183,7 @@ def register(server: MCPServer) -> None:
         annee: str | None = None,
         student_id: str | None = None,
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = await _notes(sid, school_year(annee))
         selected_periods = periods(data)
         if period:
@@ -223,7 +223,7 @@ def register(server: MCPServer) -> None:
     async def ed_get_annual_summary(
         annee: str | None = None, student_id: str | None = None
     ) -> Any:
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         data = await _notes(sid, school_year(annee))
         summaries = [period_summary(period) for period in periods(data)]
         annual = next(

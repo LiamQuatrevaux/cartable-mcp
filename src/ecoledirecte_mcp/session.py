@@ -290,13 +290,16 @@ class EdSession:
 
     # -- calls ------------------------------------------------------------
 
-    def resolve_student(self, student_id: str | None = None) -> str:
+    async def resolve_student(self, student_id: str | None = None) -> str:
         """Validate and return the student id used by every data endpoint.
 
         The id is checked against the strict numeric validator before it can
         reach a URL path, and against the accounts of the current login when
-        they are already known.
+        they are already known. Without an explicit id the session logs in on
+        first use, so the student list is known again after a restart.
         """
+        if student_id is None and not self._students:
+            await self.client()
         known = {student["id"]: student for student in self._students}
         if student_id is not None:
             candidate = require_numeric_id(str(student_id), "student_id")

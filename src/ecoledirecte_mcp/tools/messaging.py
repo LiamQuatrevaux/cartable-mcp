@@ -49,7 +49,7 @@ def register(server: MCPServer) -> None:
         per_page = clamp(per_page, 1, 200)
         preview = clamp(preview, 0, 1_000)
         query = require_text(query, "query", 200)
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         year = school_year(annee)
         payload = clean(
             await cached(
@@ -114,7 +114,7 @@ def register(server: MCPServer) -> None:
         del folder  # le détail n'utilise pas le dossier, seulement l'année
         message_id = require_token_id(message_id, "message_id")
         mode = require_choice(mode, "mode", {"destinataire", "expediteur"})
-        sid = resolve_student(student_id)
+        sid = await resolve_student(student_id)
         return clean(
             await session().run(
                 ep.get_message,

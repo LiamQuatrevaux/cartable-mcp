@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,8 +26,8 @@ def test_resolve_student_uses_default(tmp_path):
     session._students = [{"id": "1234", "nom": "DOE"}]
     session._student_id = "1234"
 
-    assert session.resolve_student(None) == "1234"
-    assert session.resolve_student("1234") == "1234"
+    assert asyncio.run(session.resolve_student(None)) == "1234"
+    assert asyncio.run(session.resolve_student("1234")) == "1234"
 
 
 def test_resolve_student_rejects_unknown_id(tmp_path):
@@ -35,14 +36,40 @@ def test_resolve_student_rejects_unknown_id(tmp_path):
     session._student_id = "1234"
 
     with pytest.raises(ValueError, match="Élève inconnu"):
-        session.resolve_student("9999")
+        asyncio.run(session.resolve_student("9999"))
 
 
-def test_resolve_student_requires_login_when_empty(tmp_path):
+def test_resolve_student_requires_login_when_empty(tmp_path, monkeypatch):
     session = make_session(tmp_path)
 
-    with pytest.raises(AuthRequired):
-        session.resolve_student(None)
+    async def no_credentials() -> EDClient:
+        raise AuthRequired("Aucun élève associé au compte. Appelle ed_login d'abord.")
+
+    monkeypatch.setattr(session, "client", no_credentials)
+
+    with pytest.raises(AuthRequired, match="Aucun élève associé"):
+        asyncio.run(session.resolve_student(None))
+
+
+def test_resolve_student_logs_in_when_students_unknown(tmp_path, monkeypatch):
+    session = make_session(tmp_path)
+    calls: list[int] = []
+
+    async def lazy_login() -> EDClient:
+        calls.append(1)
+        session._students = [{"id": "1234", "nom": "DOE"}]
+        session._student_id = "1234"
+        return cast(EDClient, None)
+
+    monkeypatch.setattr(session, "client", lazy_login)
+
+    assert asyncio.run(session.resolve_student(None)) == "1234"
+    assert calls == [1]
+
+    # Un identifiant explicite ne déclenche aucune connexion.
+    session._students = []
+    assert asyncio.run(session.resolve_student("4321")) == "4321"
+    assert calls == [1]
 
 
 def test_default_year_uses_account_metadata(tmp_path):
@@ -202,4 +229,4 @@ def test_resolve_student_rejects_path_like_id(tmp_path: Path) -> None:
     session = make_session(tmp_path)
 
     with pytest.raises(ValueError, match="identifiant numérique"):
-        session.resolve_student("../../login")
+        asyncio.run(session.resolve_student("../../login"))
