@@ -1,0 +1,35 @@
+Cartable — serveur MCP en lecture seule pour EcoleDirecte
+=========================================================
+
+Travail dérivé
+--------------
+Ce dépôt contient une version modifiée de « Ecole Directe API »
+(https://github.com/hacf-fr/ecoledirecte_api), Copyright (C) 2025 Giga77,
+publié sous GNU Lesser General Public License v3.0 or later.
+
+Le texte de la LGPL-3.0 est fourni dans LICENSE ; celui de la GPL-3.0, dont la
+LGPL-3.0 reprend les termes et conditions, dans COPYING.GPL-3.0.
+
+Modifications
+-------------
+Modifications apportées par LiamQuatrevaux (2026), conformément à la section 5
+de la LGPL-3.0 :
+
+- ajout du serveur MCP « Cartable » (`src/ecoledirecte_mcp`) : 61 outils en
+  lecture seule, transports stdio et Streamable HTTP, session unique, cache
+  mémoire, validation stricte des entrées ;
+- ajout des modules `codec.py` et `endpoints.py` côté client, et du mode
+  lecture seule à la couche HTTP ;
+- ajout du dossier `deploy/` (unité systemd durcie, exemples de configuration) ;
+- ajout de la documentation (`README.md`) et des tests associés ;
+- retrait des fichiers de publication PyPI, du gabarit cookiecutter et des
+  configurations d'outils propres au dépôt amont.
+
+Aucune garantie
+---------------
+Logiciel fourni « en l'état », sans garantie d'aucune sorte, conformément à la
+LGPL-3.0.
+
+Projet non officiel : aucune affiliation, aucun partenariat et aucune
+approbation d'Aplim ni d'EcoleDirecte. « EcoleDirecte » est une marque de son
+propriétaire et n'est citée qu'à titre descriptif.
