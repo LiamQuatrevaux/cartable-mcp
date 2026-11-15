@@ -407,7 +407,7 @@ class EDClient:
         payload: Any | None = None,
     ) -> JsonResponse:
         """Make a POST request to the Ecole Directe API"""
-        self._enforce_read_only(params, path)
+        self._enforce_read_only(params, path, payload)
         if self._session is None:
             await self.login()
 
@@ -1072,18 +1072,57 @@ class EDClient:
 
         return response.content
 
+    @staticmethod
+    def _payload_verbe(payload: Any | None) -> str | None:
+        """Return the ``verbe`` carried by a ``data=`` payload, if any.
+
+        A payload that cannot be parsed but mentions ``verbe`` is reported as
+        unreadable, so the caller refuses it instead of guessing.
+        """
+        if payload is None:
+            return None
+        if isinstance(payload, Mapping):
+            value = payload.get("verbe")
+            return None if value is None else str(value)
+        if isinstance(payload, bytes | bytearray):
+            candidate = bytes(payload).decode("utf-8", "replace")
+        else:
+            candidate = str(payload)
+        candidate = candidate.strip()
+        if candidate.startswith("data="):
+            candidate = candidate[len("data="):].strip()
+        try:
+            parsed = json.loads(candidate)
+        except JSONDecodeError:
+            return "<illisible>" if '"verbe"' in candidate.lower() else None
+        if isinstance(parsed, Mapping):
+            value = parsed.get("verbe")
+            return None if value is None else str(value)
+        return None
+
     def _enforce_read_only(
-        self, params: Mapping[str, Any] | None, path: str
+        self,
+        params: Mapping[str, Any] | None,
+        path: str,
+        payload: Any | None = None,
     ) -> None:
-        """Refuse toute requête non-GET quand le client est en lecture seule."""
+        """Refuse toute requête non-GET quand le client est en lecture seule.
+
+        Le verbe est contrôlé dans les paramètres **et** dans le corps JSON :
+        un ``verbe`` glissé dans ``data=`` ne contourne pas la lecture seule.
+        """
         if not self.read_only:
             return
-        verbe = str((params or {}).get("verbe", "get")).lower()
-        if verbe not in {"get", "list"}:
-            raise ReadOnlyViolation(
-                path=path,
-                message=f"Mode lecture seule : verbe '{verbe}' refusé.",
-            )
+        verbes = [str((params or {}).get("verbe", "get"))]
+        body_verbe = self._payload_verbe(payload)
+        if body_verbe is not None:
+            verbes.append(body_verbe)
+        for verbe in verbes:
+            if verbe.lower() not in {"get", "list"}:
+                raise ReadOnlyViolation(
+                    path=path,
+                    message=f"Mode lecture seule : verbe '{verbe}' refusé.",
+                )
 
     def _capture_tokens(self, response: ClientResponse) -> None:
         """Keep rotated X-Token / 2FA-Token headers in sync."""
@@ -1113,7 +1152,7 @@ class EDClient:
                 path=path,
                 message=f"Mode lecture seule : méthode '{method}' refusée.",
             )
-        self._enforce_read_only(params, path)
+        self._enforce_read_only(params, path, payload)
         if self._session is None:
             await self.login()
 

@@ -6,7 +6,7 @@ import pytest
 
 from ecoledirecte_api.client import EDClient
 from ecoledirecte_api.exceptions import LoginException, ReadOnlyViolation
-from ecoledirecte_mcp.config import ConfigError, Settings
+from ecoledirecte_mcp.config import ConfigError, Settings, save_qcm
 from ecoledirecte_mcp.downloads import save_download
 from ecoledirecte_mcp.session import EdSession
 from ecoledirecte_mcp.validation import (
@@ -167,3 +167,34 @@ def test_raw_query_denylist():
     assert not is_allowed_path("/telechargement.awp")
     assert not is_allowed_path("/eleves/../../login.awp")
     assert not is_allowed_path("https://evil.example/x.awp")
+
+
+def test_read_only_client_refuses_write_verbe_in_body() -> None:
+    client = EDClient("u", "p", {}, read_only=True)
+
+    with pytest.raises(ReadOnlyViolation):
+        client._enforce_read_only(
+            {"verbe": "get"}, "/eleves/1/notes.awp", 'data={"verbe": "put"}'
+        )
+
+    # Corps illisible mais qui mentionne verbe : refusé par prudence.
+    with pytest.raises(ReadOnlyViolation):
+        client._enforce_read_only(
+            {"verbe": "get"}, "/eleves/1/notes.awp", 'data={"verbe": "put"'
+        )
+
+    # Corps légitime : la lecture reste autorisée.
+    client._enforce_read_only(
+        {"verbe": "get"}, "/eleves/1/notes.awp", 'data={"anneeScolaire": "x"}'
+    )
+
+
+def test_save_qcm_creates_private_file(tmp_path: Path) -> None:
+    if os.name != "posix":
+        pytest.skip("POSIX permissions only")
+
+    path = tmp_path / "qcm.json"
+    save_qcm(path, {"QCM": ["A"]})
+
+    assert path.read_text(encoding="utf-8").lstrip().startswith("{")
+    assert path.stat().st_mode & 0o777 == 0o600

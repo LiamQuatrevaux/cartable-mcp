@@ -20,6 +20,7 @@ from ecoledirecte_api.exceptions import LoginException, QCMChallengeRequired
 
 from .cache import TTLCache
 from .config import ConfigError, Settings, load_qcm, save_qcm
+from .validation import require_numeric_id
 
 T = TypeVar("T")
 
@@ -290,10 +291,15 @@ class EdSession:
     # -- calls ------------------------------------------------------------
 
     def resolve_student(self, student_id: str | None = None) -> str:
-        """Validate and return the student id used by every data endpoint."""
+        """Validate and return the student id used by every data endpoint.
+
+        The id is checked against the strict numeric validator before it can
+        reach a URL path, and against the accounts of the current login when
+        they are already known.
+        """
         known = {student["id"]: student for student in self._students}
         if student_id is not None:
-            candidate = str(student_id)
+            candidate = require_numeric_id(str(student_id), "student_id")
             if known and candidate not in known:
                 raise ValueError(
                     "Élève inconnu pour ce compte. Identifiants disponibles : "

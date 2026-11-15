@@ -196,3 +196,10 @@ async def test_submit_qcm_drops_answer_when_same_question_returns(tmp_path, monk
         await session.submit_qcm("A")
 
     assert "Q1" not in session._qcm
+
+
+def test_resolve_student_rejects_path_like_id(tmp_path: Path) -> None:
+    session = make_session(tmp_path)
+
+    with pytest.raises(ValueError, match="identifiant numérique"):
+        session.resolve_student("../../login")

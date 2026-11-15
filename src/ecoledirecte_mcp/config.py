@@ -203,15 +203,20 @@ def load_qcm(path: Path) -> dict[str, list[str]]:
 
 
 def save_qcm(path: Path, answers: dict[str, list[str]]) -> None:
-    """Persist QCM answers with restrictive permissions."""
+    """Persist QCM answers, creating the file directly as ``0600``.
+
+    ``os.open`` applies the mode at creation time, so the answers are never
+    readable by others, even for an instant, whatever the process umask.
+    """
     if not answers:
         return
     _private_dir(path.parent)
     payload = {question: values for question, values in answers.items() if values}
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    data = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(data)
     try:
-        path.chmod(0o600)
+        path.chmod(0o600)  # resserre un fichier préexistant plus permissif
     except OSError:  # pragma: no cover - best effort on exotic filesystems
         pass
