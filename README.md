@@ -89,6 +89,8 @@ ou les variables `ED_USERNAME` / `ED_PASSWORD` (prioritaires sur le fichier).
 | --- | --- | --- |
 | `ED_CREDENTIALS_FILE` | `~/.config/ecoledirecte-mcp/credentials.json` | Fichier JSON `{"username", "password"}` |
 | `ED_QCM_FILE` | `~/.config/ecoledirecte-mcp/qcm.json` | Réponses QCM mémorisées (écrites en `0600`) |
+| `ED_SESSION_FILE` | `~/.config/ecoledirecte-mcp/session.json` | Token de session réutilisé au redémarrage (écrit en `0600`) |
+| `ED_SESSION_TTL_HOURS` | `12` | Durée de réutilisation d'un token enregistré, en heures |
 | `ED_DOWNLOAD_DIR` | `~/.config/ecoledirecte-mcp/downloads` | Dossier des pièces jointes |
 | `ED_READ_ONLY` | `true` | Verrou lecture seule côté client HTTP |
 | `ED_CACHE_TTL` | `60` | Durée du cache mémoire, en secondes |

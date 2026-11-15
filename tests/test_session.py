@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -6,19 +7,20 @@ import pytest
 
 from ecoledirecte_api.client import EDClient
 from ecoledirecte_api.exceptions import EcoleDirecteException, QCMChallengeRequired
-from ecoledirecte_mcp.config import Settings
+from ecoledirecte_mcp.config import Settings, hash_username, load_session, save_session
 from ecoledirecte_mcp.session import AuthRequired, EdSession, SessionLimitError
 
 
-def make_session(tmp_path: Path) -> EdSession:
-    return EdSession(
-        Settings(
-            username="eleve",
-            password="secret",
-            qcm_file=tmp_path / "qcm.json",
-            download_dir=tmp_path / "dl",
-        )
-    )
+def make_session(tmp_path: Path, **overrides: Any) -> EdSession:
+    options: dict[str, Any] = {
+        "username": "eleve",
+        "password": "secret",
+        "qcm_file": tmp_path / "qcm.json",
+        "download_dir": tmp_path / "dl",
+        "session_file": tmp_path / "session.json",
+    }
+    options.update(overrides)
+    return EdSession(Settings(**options))
 
 
 def test_resolve_student_uses_default(tmp_path):
@@ -230,3 +232,120 @@ def test_resolve_student_rejects_path_like_id(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="identifiant numérique"):
         asyncio.run(session.resolve_student("../../login"))
+
+
+def _write_session(tmp_path: Path, *, username: str = "eleve") -> Path:
+    path = tmp_path / "session.json"
+    save_session(
+        path,
+        {
+            "username_hash": hash_username(username),
+            "token": "jeton-abc",
+            "token_2fa": None,
+            "cn": None,
+            "cv": None,
+            "student_id": "1234",
+            "current_id_login": 7,
+            "accounts": [{"id": "1234", "idLogin": 7}],
+            "students": [{"id": "1234", "nom": "DOE"}],
+        },
+    )
+    return path
+
+
+def _age_session(path: Path, seconds: float) -> None:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["saved_at"] -= seconds
+    path.write_text(json.dumps(data), encoding="utf-8")
+    path.chmod(0o600)
+
+
+def test_session_token_is_persisted_with_private_mode(tmp_path: Path) -> None:
+    session = make_session(tmp_path)
+    session._client = EDClient("eleve", "secret", {}, read_only=True)
+    session._client.token = "jeton-abc"
+    session._accounts = [{"id": "1234", "idLogin": 7}]
+    session._students = [{"id": "1234", "nom": "DOE"}]
+    session._student_id = "1234"
+
+    session._persist_session()
+
+    path = tmp_path / "session.json"
+    assert path.stat().st_mode & 0o777 == 0o600
+    stored = load_session(path)
+    assert stored is not None
+    assert stored["token"] == "jeton-abc"
+    assert stored["student_id"] == "1234"
+    assert stored["username_hash"] == hash_username("eleve")
+
+
+def test_restart_reuses_persisted_session_without_login(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_session(tmp_path)
+    session = make_session(tmp_path)
+
+    async def no_login() -> dict[str, Any]:
+        raise AssertionError("aucun login ne doit être tenté")
+
+    monkeypatch.setattr(session, "_login_locked", no_login)
+
+    async def scenario() -> tuple[str, str | None]:
+        student = await session.resolve_student(None)
+        token = session._client.token if session._client is not None else None
+        await session.logout()
+        return student, token
+
+    assert asyncio.run(scenario()) == ("1234", "jeton-abc")
+
+
+def test_expired_session_is_discarded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write_session(tmp_path)
+    _age_session(path, 13 * 3600)
+    session = make_session(tmp_path)
+
+    async def fallback_login() -> dict[str, Any]:
+        raise AuthRequired("identifiants absents")
+
+    monkeypatch.setattr(session, "_login_locked", fallback_login)
+
+    with pytest.raises(AuthRequired):
+        asyncio.run(session.client())
+    assert not path.exists()
+
+
+def test_session_from_another_account_is_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write_session(tmp_path, username="autre")
+    session = make_session(tmp_path)
+
+    async def fallback_login() -> dict[str, Any]:
+        raise AuthRequired("identifiants absents")
+
+    monkeypatch.setattr(session, "_login_locked", fallback_login)
+
+    with pytest.raises(AuthRequired):
+        asyncio.run(session.client())
+    assert not path.exists()
+
+
+def test_resolve_student_explains_account_without_student(tmp_path: Path) -> None:
+    session = make_session(tmp_path)
+    client = EDClient("eleve", "secret", {}, read_only=True)
+    client.token = "jeton-abc"
+    session._client = client
+
+    with pytest.raises(AuthRequired, match="aucun élève n'est rattaché"):
+        asyncio.run(session.resolve_student(None))
+
+
+def test_login_summary_warns_when_no_student(tmp_path: Path) -> None:
+    session = make_session(tmp_path)
+    client = EDClient("eleve", "secret", {}, read_only=True)
+    client.token = "jeton-abc"
+    session._client = client
+
+    assert "avertissement" in session._login_summary()

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -19,10 +20,21 @@ from ecoledirecte_api.client import EDClient
 from ecoledirecte_api.exceptions import LoginException, QCMChallengeRequired
 
 from .cache import TTLCache
-from .config import ConfigError, Settings, load_qcm, save_qcm
+from .config import (
+    ConfigError,
+    Settings,
+    clear_session,
+    hash_username,
+    load_qcm,
+    load_session,
+    save_qcm,
+    save_session,
+)
 from .validation import require_numeric_id
 
 T = TypeVar("T")
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AuthRequired(RuntimeError):
@@ -53,6 +65,7 @@ class EdSession:
         self._request_times: deque[float] = deque()
         self._request_count = 0
         self._last_latency_ms: float | None = None
+        self._saved_token: str | None = None
         self._qcm = load_qcm(settings.qcm_file)
 
     # -- state ------------------------------------------------------------
@@ -112,14 +125,100 @@ class EdSession:
     # -- authentication ---------------------------------------------------
 
     async def client(self) -> EDClient:
-        """Return a logged-in client, authenticating on first use."""
+        """Return a logged-in client, reusing the persisted session if any."""
         if self.authenticated and self._client is not None:
             return self._client
         async with self._login_lock:
-            if self._client is None or not self._client.token:
+            missing = self._client is None or not self._client.token
+            if missing and not await self._restore_locked():
                 await self._login_locked()
         assert self._client is not None
         return self._client
+
+    def _build_client(self, username: str, password: str) -> EDClient:
+        """Create an unauthenticated client wired to the challenge callback."""
+        client = EDClient(
+            username,
+            password,
+            self._qcm,
+            server_endpoint=self.settings.api_url,
+            api_version=self.settings.api_version,
+            read_only=True,
+            timeout=self.settings.request_timeout,
+        )
+        client.on_new_question(self._store_challenge)
+        return client
+
+    async def _restore_locked(self) -> bool:
+        """Reattach the session written by the previous process, if still valid.
+
+        Reusing the token avoids opening a new Ecole Directe session on every
+        restart, which is what drives the ``Too many open sessions`` answer.
+        """
+        path = self.settings.session_file
+        if path is None:
+            return False
+        stored = load_session(path)
+        if stored is None:
+            return False
+        if time.time() - stored["saved_at"] > self.settings.session_ttl:
+            clear_session(path)
+            return False
+        try:
+            username, password = self.settings.resolve_credentials()
+        except ConfigError:
+            return False
+        if stored["username_hash"] != hash_username(username):
+            clear_session(path)
+            return False
+
+        client = self._build_client(username, password)
+        client.restore_session(
+            stored["token"],
+            token_2fa=stored["token_2fa"],
+            cn=stored["cn"],
+            cv=stored["cv"],
+        )
+        self._client = client
+        self._accounts = stored["accounts"]
+        self._students = stored["students"]
+        self._student_id = stored["student_id"]
+        self._current_id_login = stored["current_id_login"]
+        self._saved_token = stored["token"]
+        LOGGER.info("Session réutilisée depuis %s (sans nouvel identifiant).", path)
+        return True
+
+    def _persist_session(self) -> None:
+        """Write the current token to disk so a restart reuses it."""
+        path = self.settings.session_file
+        client = self._client
+        if path is None or client is None or not client.token:
+            return
+        if client.token == self._saved_token:
+            return
+        try:
+            username, _ = self.settings.resolve_credentials()
+        except ConfigError:
+            return
+        try:
+            save_session(
+                path,
+                {
+                    "username_hash": hash_username(username),
+                    "token": client.token,
+                    "token_2fa": getattr(client, "token_2fa", None),
+                    "cn": getattr(client, "cn", None),
+                    "cv": getattr(client, "cv", None),
+                    "student_id": self._student_id,
+                    "current_id_login": self._current_id_login,
+                    "accounts": self._accounts,
+                    "students": self._students,
+                },
+            )
+        except OSError as exc:  # pragma: no cover - disque plein, droits, etc.
+            LOGGER.warning("Session non enregistrée (%s): %s", path, exc)
+            return
+        self._saved_token = client.token
 
     async def login(self, *, force: bool = False) -> dict[str, Any]:
         """Open a session, reusing an already authenticated client.
@@ -145,16 +244,7 @@ class EdSession:
         except ConfigError as exc:
             raise AuthRequired(str(exc)) from exc
 
-        client = EDClient(
-            username,
-            password,
-            self._qcm,
-            server_endpoint=self.settings.api_url,
-            api_version=self.settings.api_version,
-            read_only=True,
-            timeout=self.settings.request_timeout,
-        )
-        client.on_new_question(self._store_challenge)
+        client = self._build_client(username, password)
 
         try:
             payload = await client.login()
@@ -200,6 +290,7 @@ class EdSession:
 
         save_qcm(self.settings.qcm_file, self._qcm)
         self._pending = None
+        self._persist_session()
         return self._login_summary()
 
     async def _store_challenge(self, qcm: dict[str, list[str]]) -> None:
@@ -260,6 +351,9 @@ class EdSession:
         self._pending = None
         self._cache.clear()
         self._key_locks.clear()
+        self._saved_token = None
+        if self.settings.session_file is not None:
+            clear_session(self.settings.session_file)
 
     async def select_account(self, id_login: int) -> dict[str, Any]:
         """Switch the API token to another account of the same login."""
@@ -276,10 +370,11 @@ class EdSession:
         if students:
             self._student_id = students[0]["id"]
         self._cache.clear()
+        self._persist_session()
         return self._login_summary()
 
     def _login_summary(self) -> dict[str, Any]:
-        return {
+        summary: dict[str, Any] = {
             "authenticated": self.authenticated,
             "student_id": self._student_id,
             "students": self._students,
@@ -287,6 +382,12 @@ class EdSession:
             "annee_scolaire": self.default_year(),
             "api_version": self.api_version,
         }
+        if self.authenticated and not self._students:
+            summary["avertissement"] = (
+                "Connexion réussie, mais aucun élève n'est rattaché à ce compte : "
+                "les outils qui exigent un élève resteront indisponibles."
+            )
+        return summary
 
     # -- calls ------------------------------------------------------------
 
@@ -310,6 +411,13 @@ class EdSession:
                 )
             return candidate
         if self._student_id is None:
+            if self.authenticated:
+                raise AuthRequired(
+                    "Connexion Ecole Directe réussie, mais aucun élève n'est "
+                    "rattaché à ce compte : il n'y a donc aucun identifiant "
+                    "d'élève à utiliser. Le compte est probablement personnel "
+                    "(professeur, vie scolaire) ou parental sans enfant actif."
+                )
             raise AuthRequired(
                 "Aucun élève associé au compte. Appelle ed_login d'abord."
             )
@@ -373,6 +481,9 @@ class EdSession:
                 self._last_latency_ms = round(
                     (time.perf_counter() - started) * 1000, 1
                 )
+                # Un renouvellement de token doit survivre au redémarrage.
+                if self._client is not None and self._client.token != self._saved_token:
+                    self._persist_session()
 
     async def fetch(
         self,

@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -79,6 +81,10 @@ class Settings:
     password: str | None = None
     credentials_file: Path | None = None
     qcm_file: Path = field(default_factory=lambda: config_dir() / "qcm.json")
+    session_file: Path | None = field(
+        default_factory=lambda: config_dir() / "session.json"
+    )
+    session_ttl: float = 12 * 3600
     api_url: str = APIURL
     api_version: str = APIVERSION
     read_only: bool = True
@@ -108,6 +114,9 @@ class Settings:
             "max_requests_per_minute",
             min(600, max(10, self.max_requests_per_minute)),
         )
+        object.__setattr__(
+            self, "session_ttl", min(168 * 3600.0, max(0.0, self.session_ttl))
+        )
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -119,12 +128,15 @@ class Settings:
 
         qcm_file = _env_path("ED_QCM_FILE") or (config_dir() / "qcm.json")
         download_dir = _env_path("ED_DOWNLOAD_DIR") or (config_dir() / "downloads")
+        session_file = _env_path("ED_SESSION_FILE") or (config_dir() / "session.json")
 
         return cls(
             username=os.environ.get("ED_USERNAME"),
             password=os.environ.get("ED_PASSWORD"),
             credentials_file=credentials_file,
             qcm_file=qcm_file,
+            session_file=session_file,
+            session_ttl=_env_float("ED_SESSION_TTL_HOURS", 12.0) * 3600.0,
             api_url=os.environ.get("ED_API_URL", APIURL),
             api_version=os.environ.get("ED_API_VERSION", APIVERSION),
             read_only=_env_bool("ED_READ_ONLY", True),
@@ -179,6 +191,98 @@ class Settings:
         return username, password
 
 
+def hash_username(username: str) -> str:
+    """Return a stable, non-reversible fingerprint of the login."""
+    return hashlib.sha256(username.strip().casefold().encode("utf-8")).hexdigest()
+
+
+def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON atomically, creating the file directly as ``0600``."""
+    _private_dir(path.parent)
+    data = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    temporary = path.with_name(path.name + ".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+    try:
+        path.chmod(0o600)  # resserre un fichier préexistant plus permissif
+    except OSError:  # pragma: no cover - best effort on exotic filesystems
+        pass
+
+
+SESSION_VERSION = 1
+
+
+def load_session(path: Path) -> dict[str, Any] | None:
+    """Return a persisted token, or ``None`` when it is absent or unusable."""
+    if not path.exists():
+        return None
+    try:
+        assert_private_file(path, "Fichier de session")
+        raw: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (ConfigError, OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict) or raw.get("version") != SESSION_VERSION:
+        return None
+
+    token = raw.get("token")
+    saved_at = raw.get("saved_at")
+    username_hash = raw.get("username_hash")
+    if not isinstance(token, str) or not token.strip():
+        return None
+    if not isinstance(saved_at, int | float) or isinstance(saved_at, bool):
+        return None
+    if not isinstance(username_hash, str) or not username_hash:
+        return None
+
+    def _text(key: str) -> str | None:
+        value = raw.get(key)
+        return value if isinstance(value, str) and value else None
+
+    def _dicts(key: str) -> list[dict[str, Any]]:
+        value = raw.get(key)
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, dict)]
+
+    current_id_login = raw.get("current_id_login")
+    return {
+        "token": token,
+        "saved_at": float(saved_at),
+        "username_hash": username_hash,
+        "token_2fa": _text("token_2fa"),
+        "cn": _text("cn"),
+        "cv": _text("cv"),
+        "student_id": _text("student_id"),
+        "current_id_login": (
+            current_id_login
+            if isinstance(current_id_login, int) and not isinstance(current_id_login, bool)
+            else None
+        ),
+        "accounts": _dicts("accounts"),
+        "students": _dicts("students"),
+    }
+
+
+def save_session(path: Path, payload: dict[str, Any]) -> None:
+    """Persist the current token and account snapshot as ``0600``."""
+    _write_private_json(
+        path, {"version": SESSION_VERSION, "saved_at": time.time(), **payload}
+    )
+
+
+def clear_session(path: Path) -> None:
+    """Remove the persisted token, ignoring a missing file."""
+    for candidate in (path, path.with_name(path.name + ".tmp")):
+        try:
+            candidate.unlink()
+        except OSError:
+            pass
+
+
 def load_qcm(path: Path) -> dict[str, list[str]]:
     """Load saved QCM answers (question -> single expected answer)."""
     if not path.exists():
@@ -210,13 +314,6 @@ def save_qcm(path: Path, answers: dict[str, list[str]]) -> None:
     """
     if not answers:
         return
-    _private_dir(path.parent)
-    payload = {question: values for question, values in answers.items() if values}
-    data = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "wb") as handle:
-        handle.write(data)
-    try:
-        path.chmod(0o600)  # resserre un fichier préexistant plus permissif
-    except OSError:  # pragma: no cover - best effort on exotic filesystems
-        pass
+    _write_private_json(
+        path, {question: values for question, values in answers.items() if values}
+    )

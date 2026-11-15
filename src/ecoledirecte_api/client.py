@@ -281,6 +281,28 @@ class EDClient:
         else:
             self.callbacks["new_question"].append(callback)
 
+    def restore_session(
+        self,
+        token: str,
+        *,
+        token_2fa: str | None = None,
+        cn: str | None = None,
+        cv: str | None = None,
+    ) -> None:
+        """Reattach a token issued earlier instead of opening a new session.
+
+        The API answers code 520 to an unknown or expired token, and the
+        retry decorators then fall back to a full login, so a stale token
+        costs one failed call rather than a leaked open session.
+        """
+        self.token = token
+        self.token_2fa = token_2fa
+        self.cn = cn
+        self.cv = cv
+        self.__get_new_client__()
+        if self.token_2fa is not None:
+            self._require_session().headers.update({"2FA-Token": self.token_2fa})
+
     async def freshlogin(self) -> Any:
         """Re-authenticate without reusing the current token or cookies."""
         self.token = None
