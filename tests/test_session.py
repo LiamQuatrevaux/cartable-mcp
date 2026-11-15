@@ -6,7 +6,11 @@ from typing import Any, cast
 import pytest
 
 from ecoledirecte_api.client import EDClient
-from ecoledirecte_api.exceptions import EcoleDirecteException, QCMChallengeRequired
+from ecoledirecte_api.exceptions import (
+    EcoleDirecteException,
+    LoginException,
+    QCMChallengeRequired,
+)
 from ecoledirecte_mcp.config import Settings, hash_username, load_session, save_session
 from ecoledirecte_mcp.session import AuthRequired, EdSession, SessionLimitError
 
@@ -18,6 +22,7 @@ def make_session(tmp_path: Path, **overrides: Any) -> EdSession:
         "qcm_file": tmp_path / "qcm.json",
         "download_dir": tmp_path / "dl",
         "session_file": tmp_path / "session.json",
+        "min_request_interval": 0.0,
     }
     options.update(overrides)
     return EdSession(Settings(**options))
@@ -349,3 +354,57 @@ def test_login_summary_warns_when_no_student(tmp_path: Path) -> None:
     session._client = client
 
     assert "avertissement" in session._login_summary()
+
+
+def test_run_refreshes_rejected_token_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = make_session(tmp_path)
+    stale = EDClient("eleve", "secret", {}, read_only=True)
+    stale.token = "jeton-perime"
+    fresh = EDClient("eleve", "secret", {}, read_only=True)
+    fresh.token = "jeton-neuf"
+    session._client = stale
+    session._students = [{"id": "1234"}]
+    session._student_id = "1234"
+
+    logins: list[int] = []
+
+    async def relogin() -> dict[str, Any]:
+        logins.append(1)
+        session._client = fresh
+        return session._login_summary()
+
+    monkeypatch.setattr(session, "_login_locked", relogin)
+
+    seen: list[str | None] = []
+
+    async def call(client: EDClient) -> str:
+        seen.append(client.token)
+        if client.token == "jeton-perime":
+            raise LoginException(message="Le token est invalide")
+        return "ok"
+
+    assert asyncio.run(session.run(call)) == "ok"
+    assert logins == [1]
+    assert seen == ["jeton-perime", "jeton-neuf"]
+
+
+def test_run_does_not_retry_other_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = make_session(tmp_path)
+    client = EDClient("eleve", "secret", {}, read_only=True)
+    client.token = "jeton"
+    session._client = client
+
+    async def no_login() -> dict[str, Any]:
+        raise AssertionError("aucune reconnexion attendue")
+
+    monkeypatch.setattr(session, "_login_locked", no_login)
+
+    async def call(_client: EDClient) -> str:
+        raise LoginException(message="Le compte est bloqué")
+
+    with pytest.raises(LoginException, match="bloqué"):
+        asyncio.run(session.run(call))

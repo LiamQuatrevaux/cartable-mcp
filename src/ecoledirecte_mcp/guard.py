@@ -32,8 +32,16 @@ F = TypeVar("F", bound=Callable[..., Any])
 ToolFunc = Callable[..., Coroutine[Any, Any, Any]]
 
 
+def _first_leaf(exc: BaseException) -> BaseException:
+    """Unwrap ``ExceptionGroup`` layers, asyncio task groups may add."""
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return exc
+
+
 def as_tool_error(exc: BaseException) -> ToolError | None:
     """Return a readable ``ToolError`` for a failure the user can act on."""
+    exc = _first_leaf(exc)
     if isinstance(exc, ToolError):
         return exc
     if isinstance(exc, (AuthRequired, SessionLimitError)):

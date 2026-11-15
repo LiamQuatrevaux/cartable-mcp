@@ -47,3 +47,14 @@ def test_api_errors_keep_path_and_status() -> None:
     assert isinstance(translated, ToolError)
     assert "/eleves/1/notes.awp" in str(translated)
     assert "500" in str(translated)
+
+
+def test_exception_group_keeps_the_real_message() -> None:
+    grouped = ExceptionGroup(
+        "boom", [ValueError("student_id doit être un identifiant numérique.")]
+    )
+
+    translated = as_tool_error(grouped)
+
+    assert translated is not None
+    assert "identifiant numérique" in str(translated)

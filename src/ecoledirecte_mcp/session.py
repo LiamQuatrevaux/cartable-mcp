@@ -467,23 +467,51 @@ class EdSession:
     async def run(
         self, func: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
     ) -> T:
-        """Run one API call, serialized, rate-limited and measured."""
+        """Run one API call, serialized, rate-limited and measured.
+
+        A token Ecole Directe rejects (code 520, typically a persisted token
+        that expired while the service was idle) is replaced by a fresh login
+        and the call is retried once, so a stale token never surfaces as an
+        error to the user.
+        """
         client = await self.client()
         async with self._api_lock:
-            await self._throttle()
-            started = time.perf_counter()
             try:
-                return await func(client, *args, **kwargs)
-            finally:
-                self._last_request = time.monotonic()
-                self._request_times.append(self._last_request)
-                self._request_count += 1
-                self._last_latency_ms = round(
-                    (time.perf_counter() - started) * 1000, 1
-                )
-                # Un renouvellement de token doit survivre au redémarrage.
-                if self._client is not None and self._client.token != self._saved_token:
-                    self._persist_session()
+                return await self._invoke(client, func, args, kwargs)
+            except LoginException as exc:
+                if not _is_invalid_token(exc):
+                    raise
+                LOGGER.info("Token refusé par l'API, reconnexion transparente.")
+                client = await self._reconnect_locked()
+                return await self._invoke(client, func, args, kwargs)
+
+    async def _invoke(
+        self,
+        client: EDClient,
+        func: Callable[..., Awaitable[T]],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> T:
+        """Run one call against ``client`` and keep the metrics up to date."""
+        await self._throttle()
+        started = time.perf_counter()
+        try:
+            return await func(client, *args, **kwargs)
+        finally:
+            self._last_request = time.monotonic()
+            self._request_times.append(self._last_request)
+            self._request_count += 1
+            self._last_latency_ms = round((time.perf_counter() - started) * 1000, 1)
+            # Un renouvellement de token doit survivre au redémarrage.
+            if self._client is not None and self._client.token != self._saved_token:
+                self._persist_session()
+
+    async def _reconnect_locked(self) -> EDClient:
+        """Open a fresh session after the current token was rejected."""
+        async with self._login_lock:
+            await self._login_locked()
+        assert self._client is not None
+        return self._client
 
     async def fetch(
         self,
@@ -516,6 +544,19 @@ class EdSession:
 
     def cache_stats(self) -> dict[str, int]:
         return self._cache.stats()
+
+
+_INVALID_TOKEN_HINTS = (
+    "token est invalide",
+    "token is invalid",
+    "no active api session",
+)
+
+
+def _is_invalid_token(exc: BaseException) -> bool:
+    """Return True when the API rejected the token rather than the request."""
+    message = str(exc).lower()
+    return any(hint in message for hint in _INVALID_TOKEN_HINTS)
 
 
 def _collect_students(accounts: list[dict[str, Any]]) -> list[dict[str, Any]]:
